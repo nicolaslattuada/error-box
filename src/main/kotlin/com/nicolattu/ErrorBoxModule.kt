@@ -5,7 +5,6 @@ import arrow.core.left
 import arrow.core.right
 import arrow.core.rightIfNotNull
 import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.core.JsonStreamContext
 import com.fasterxml.jackson.core.JsonToken
 import com.fasterxml.jackson.core.json.PackageVersion
 import com.fasterxml.jackson.databind.BeanDescription
@@ -105,7 +104,7 @@ private class ErrorBoxDeserializer(
         val deserializer = valueDeserializer ?: context.findContextualValueDeserializer(
             fullType.contentType, beanProperty)
         val parent = parser.parsingContext.parent
-        val index = parent.currentIndex
+        val startIndex = parent.currentIndex
         return try {
             val result: Any
             if (valueTypeDeserializer == null) {
@@ -115,24 +114,24 @@ private class ErrorBoxDeserializer(
             }
             result.right()
         } catch (e: Exception) {
-            advanceToNextObject(parent, parser, index)
+            advanceToNextObject(parser, startIndex, parent.inArray())
             e.left()
         }
     }
 
     private fun advanceToNextObject(
-        parent: JsonStreamContext,
         parser: JsonParser,
-        index: Int
+        startIndex: Int,
+        parentInArray: Boolean
     ) {
-        if (parent.inArray()) {
-            while (index == parser.parsingContext.parent.currentIndex) {
+        if (parentInArray) {
+            while (startIndex == parser.parsingContext.parent.currentIndex) {
                 parser.nextToken()
             }
         } else {
             do {
                 parser.nextToken()
-            } while (parser.parsingContext.parent != parent)
+            } while (startIndex != parser.parsingContext.parent.currentIndex)
         }
     }
 
