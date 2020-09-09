@@ -10,6 +10,8 @@ import io.kotlintest.specs.AnnotationSpec
 
 class ErrorBoxTest : AnnotationSpec() {
 
+    data class Person(val name: String, val city: String)
+    data class Team(val persons: List<ErrorBox<Person>>)
     data class Country(val banks: List<BigBank>)
     data class Bank(val account: ErrorBox<Account>)
     data class BigBank(val accounts: List<ErrorBox<Account>>)
@@ -17,49 +19,71 @@ class ErrorBoxTest : AnnotationSpec() {
     data class Balance(val value: Int, val currency: Currency)
     data class Currency(val amount: Int, val sign: String)
 
-    val objectMapper = jacksonObjectMapper().registerModule(EitherModule)
+    val objectMapper = jacksonObjectMapper().registerModule(ErrorBoxModule)
 
     val json = """
-        {
-          "balance": { "value": 12, "currency": {"amount": 25, "sign": "EUR"} },
-          "name": "harry"
-        }
-    """.trimIndent()
+    {
+      "balance": { "value": 12, "currency": {"amount": 25, "sign": "EUR"} },
+      "name": "harry"
+    }
+""".trimIndent()
     val brokenJson = """
-        {
-          "balance": { "value": 12 },
-          "name": "john"
-        }
-    """.trimIndent()
+    {
+      "balance": { "value": 12 },
+      "name": "john"
+    }
+""".trimIndent()
     val bankJson = """
-        {
-          "account": $json
-        }
-    """.trimIndent()
+    {
+      "account": $json
+    }
+""".trimIndent()
     val brokenBankJson = """
-        {
-          "account": $brokenJson
-        }
-    """.trimIndent()
+    {
+      "account": $brokenJson
+    }
+""".trimIndent()
 
     val nullBankJson = """
-        {
-          "account": null
-        }
-    """.trimIndent()
+    {
+      "account": null
+    }
+""".trimIndent()
 
 
     val bigBankJson = """
-        {
-          "accounts": [$brokenJson, $json]
-        }
-    """.trimIndent()
+    {
+      "accounts": [$brokenJson, $json]
+    }
+""".trimIndent()
 
     val country = """
-        {
-          "banks": [$bigBankJson]
+    {
+      "banks": [$bigBankJson]
+    }
+""".trimIndent()
+
+    val teamJson = """
+{
+    "persons": [
+        {"name":  "Nicolas", "city":  "Barcelona"},
+        {"name":  "Alex"}
+    ]
+}
+""".trimIndent()
+
+    @Test
+    fun `should deserialize successfully list with invalid element`() {
+        val team: Team = objectMapper.readValue(teamJson)
+        team.persons
+        val validPersons = team.persons.mapNotNull { errorBox ->
+            errorBox.getOrHandle { error ->
+                println(error.message)
+                null
+            }
         }
-    """.trimIndent()
+        validPersons shouldHaveSize 1
+    }
 
     @Test
     fun `should deserialize successfully valid json`() {
@@ -106,7 +130,7 @@ class ErrorBoxTest : AnnotationSpec() {
     @Test
     fun `should get valid elements from mixed json`() {
         val bank = objectMapper.readValue<BigBank>(bigBankJson)
-        bank.accounts shouldHaveSize  2
+        bank.accounts shouldHaveSize 2
         val accountsClean = bank.accounts.mapNotNull { errorBox ->
             errorBox.getOrHandle { error ->
                 println(error.message)

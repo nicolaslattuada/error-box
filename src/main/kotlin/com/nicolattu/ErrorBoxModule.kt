@@ -5,6 +5,7 @@ import arrow.core.left
 import arrow.core.right
 import arrow.core.rightIfNotNull
 import com.fasterxml.jackson.core.JsonParser
+import com.fasterxml.jackson.core.JsonStreamContext
 import com.fasterxml.jackson.core.JsonToken
 import com.fasterxml.jackson.core.json.PackageVersion
 import com.fasterxml.jackson.databind.BeanDescription
@@ -24,26 +25,26 @@ import com.fasterxml.jackson.databind.util.StdConverter
 
 typealias ErrorBox<T> = Either<Exception, T>
 
-object EitherModule : SimpleModule(PackageVersion.VERSION) {
+object ErrorBoxModule : SimpleModule(PackageVersion.VERSION) {
 
     init {
-        addSerializer(Either::class.java, StdDelegatingSerializer(EitherSerializationConverter))
+        addSerializer(Either::class.java, StdDelegatingSerializer(ErrorBoxSerializationConverter))
     }
 
     override fun setupModule(context: SetupContext) {
         super.setupModule(context)
-        context.addDeserializers(EitherDeserializerResolver)
+        context.addDeserializers(ErrorBoxDeserializerResolver)
     }
 }
 
-private object EitherSerializationConverter : StdConverter<Either<*, *>, Any>() {
+private object ErrorBoxSerializationConverter : StdConverter<Either<*, *>, Any>() {
     override fun convert(value: Either<*, *>?): Any? = value.rightIfNotNull { null }
 }
 
 private const val NULL_VALUE_MESSAGE = "Could not deserialize null value"
 
 @Suppress("ComplexCondition", "TooGenericExceptionCaught")
-private class EitherDeserializer(
+private class ErrorBoxDeserializer(
     private val fullType: JavaType,
     private val valueTypeDeserializer: TypeDeserializer?,
     private val valueDeserializer: JsonDeserializer<*>?,
@@ -61,14 +62,14 @@ private class EitherDeserializer(
         typeDeserializer: TypeDeserializer?,
         valueDeserializer: JsonDeserializer<*>?,
         beanProperty: BeanProperty?
-    ): EitherDeserializer {
+    ): ErrorBoxDeserializer {
         return if (fullType == this.fullType &&
             typeDeserializer == this.valueTypeDeserializer &&
             valueDeserializer == this.valueDeserializer &&
             beanProperty == this.beanProperty) {
             this
         } else {
-            EitherDeserializer(fullType, typeDeserializer, valueDeserializer, beanProperty)
+            ErrorBoxDeserializer(fullType, typeDeserializer, valueDeserializer, beanProperty)
         }
     }
 
@@ -103,6 +104,8 @@ private class EitherDeserializer(
     override fun deserialize(parser: JsonParser, context: DeserializationContext): Either<*, *> {
         val deserializer = valueDeserializer ?: context.findContextualValueDeserializer(
             fullType.contentType, beanProperty)
+        val parent = parser.parsingContext.parent
+        val index = parent.currentIndex
         return try {
             val result: Any
             if (valueTypeDeserializer == null) {
@@ -112,16 +115,25 @@ private class EitherDeserializer(
             }
             result.right()
         } catch (e: Exception) {
-            advanceToNextObject(parser)
+            advanceToNextObject(parent, parser, index)
             e.left()
         }
     }
 
-    private fun advanceToNextObject(parser: JsonParser) {
-        val startTokenId = parser.currentTokenId
-        do {
-            parser.nextToken()
-        } while (parser.currentTokenId != startTokenId)
+    private fun advanceToNextObject(
+        parent: JsonStreamContext,
+        parser: JsonParser,
+        index: Int
+    ) {
+        if (parent.inArray()) {
+            while (index == parser.parsingContext.parent.currentIndex) {
+                parser.nextToken()
+            }
+        } else {
+            do {
+                parser.nextToken()
+            } while (parser.parsingContext.parent != parent)
+        }
     }
 
     override fun deserializeWithType(
@@ -138,7 +150,7 @@ private class EitherDeserializer(
     }
 }
 
-private object EitherDeserializerResolver : Deserializers.Base() {
+private object ErrorBoxDeserializerResolver : Deserializers.Base() {
 
     private val either = Either::class.java
 
@@ -148,17 +160,17 @@ private object EitherDeserializerResolver : Deserializers.Base() {
         beanDesc: BeanDescription
     ): JsonDeserializer<Either<*, *>>? {
         val rawClass = type.rawClass
-        return if (!either.isAssignableFrom(rawClass)) {
-            null
-        } else {
+        return if (either.isAssignableFrom(rawClass)) {
             val elementType: JavaType = type.bindings.getBoundType(1)
             val typeDeserializer: TypeDeserializer? = elementType.getTypeHandler<TypeDeserializer>()
             val valueDeserializer: JsonDeserializer<*>? = elementType.getValueHandler()
-            EitherDeserializer(
+            ErrorBoxDeserializer(
                 config.typeFactory.constructReferenceType(Either::class.java, elementType),
                 typeDeserializer,
                 valueDeserializer
             )
+        } else {
+            null
         }
     }
 }
