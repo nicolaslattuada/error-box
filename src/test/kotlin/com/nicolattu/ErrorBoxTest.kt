@@ -49,8 +49,6 @@ class ErrorBoxTest : AnnotationSpec() {
       "account": null
     }
 """.trimIndent()
-
-
     val bigBankJson = """
     {
       "accounts": [$brokenJson, $json]
@@ -71,11 +69,22 @@ class ErrorBoxTest : AnnotationSpec() {
     ]
 }
 """.trimIndent()
+    val otherTeamJson = """
+{
+    "persons": [
+        {"name":  "Nicolas", "city":  "Barcelona"},
+        {"name":  "David", "city":  "Munich"},
+        {"name":  "Sam"},
+        {"name":  "Alex", "city":  "London"},
+        {"name":  "John"}
+    ]
+}
+""".trimIndent()
 
     @Test
-    fun `should deserialize successfully list with invalid element`() {
+    fun `should deserialize successfully list with invalid element in last position`() {
         val team: Team = objectMapper.readValue(teamJson)
-        team.persons
+        println(team.persons)
         val validPersons = team.persons.mapNotNull { errorBox ->
             errorBox.getOrHandle { error ->
                 println(error.message)
@@ -83,6 +92,19 @@ class ErrorBoxTest : AnnotationSpec() {
             }
         }
         validPersons shouldHaveSize 1
+    }
+
+    @Test
+    fun `should deserialize successfully list with many invalid elements`() {
+        val team: Team = objectMapper.readValue(otherTeamJson)
+        team.persons
+        val validPersons = team.persons.mapNotNull { errorBox ->
+            errorBox.getOrHandle { error ->
+                println(error.message)
+                null
+            }
+        }
+        validPersons shouldHaveSize 3
     }
 
     @Test
